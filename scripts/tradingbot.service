@@ -1,0 +1,15 @@
+# VPS production unit. Mac is DEV ONLY (sleep kills 24/7 operation).
+# Install: sudo cp scripts/tradingbot.service /etc/systemd/system/ && sudo systemctl enable --now tradingbot
+[Unit]
+Description=ETH Bybit trading bot
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/trading-bot
+ExecStart=/opt/trading-bot/.venv/bin/python -m bot.main run
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/trading-bot/.env
+
+[Install]
+WantedBy=multi-user.target
