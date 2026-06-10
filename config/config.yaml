@@ -1,0 +1,33 @@
+exchange:
+  testnet: true          # mainnet requires Live Gate (docs/runbook.md) AND explicit change here
+  symbol: ETHUSDT
+  category: linear
+  leverage: 1            # hard cap enforced in risk module; never raised silently
+
+timeframes:
+  execution: "5"         # 5m candles [DEFAULT - 1m rejected: loses to fees]
+  filter: "15"           # 15m regime filter (Phase 2)
+
+risk:
+  max_position_pct: 1.5      # max % of equity risked per trade [DEFAULT]
+  daily_loss_halt_pct: 4.0   # circuit breaker [DEFAULT]
+  max_drawdown_pct: 12.0     # kill switch from peak equity [DEFAULT]
+  stop_loss_atr_mult: 2.0    # initial exchange-side stop distance
+
+strategy:
+  name: momentum
+  ema_fast: 20
+  ema_slow: 50
+  donchian_period: 20
+  atr_period: 14
+  trail_atr_mult: 2.5
+
+costs:
+  taker_fee_pct: 0.055
+  slippage_pct: 0.02
+
+loop:
+  poll_seconds: 15
+
+db:
+  path: data/bot.db
