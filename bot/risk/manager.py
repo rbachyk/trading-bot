@@ -67,6 +67,14 @@ def trailing_stop(side: str, current_stop: float, close: float, atr: float, mult
     return min(current_stop, candidate)
 
 
+def virtual_equity(real_equity: float, baseline: float, cap: float) -> float:
+    """Small-account simulation: pretend the account started at `cap` when the real
+    (e.g. testnet) wallet held `baseline`. Virtual equity = cap + PnL since then.
+    Used for BOTH sizing and breakers so a 100k-USDC testnet wallet behaves like
+    the $100 account you actually plan to fund. Floored at 0."""
+    return max(0.0, cap + (real_equity - baseline))
+
+
 def round_trip_cost_pct(taker_fee_pct: float, slippage_pct: float) -> float:
     """Total expected cost of one round trip (entry+exit), in %. Used to sanity-check
     that expected move per trade exceeds costs — fees are first-class at 5m."""

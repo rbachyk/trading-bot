@@ -1,13 +1,13 @@
 # ETH Bybit Trading Bot
 
-Regime-switching ETHUSDT perp bot (Bybit v5, testnet by default). **Phase 1: momentum strategy + full risk stack.**
+Regime-switching ETHUSDC perp bot (Bybit v5, testnet by default). **Phase 1: momentum strategy + full risk stack.**
 No profitability is implied or guaranteed; most retail bots lose money. This repo exists to test ideas safely.
 
 ## Quick start (Mac, dev)
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # paste TESTNET keys from https://testnet.bybit.com
+cp .env.example .env        # paste TESTNET keys from https://testnet.bybit.eu
 pytest                      # risk + strategy tests must pass
 python -m bot.main run      # start (testnet)
 python -m bot.main status   # equity / position / halt state

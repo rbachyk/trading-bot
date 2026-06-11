@@ -6,13 +6,14 @@ from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 class ExchangeCfg(BaseModel):
     testnet: bool = True
+    tld: str = "com"          # "eu" for testnet.bybit.eu accounts; "com" for bybit.com
     symbol: str = "ETHUSDT"
     category: str = "linear"
     leverage: float = Field(1, ge=1)
@@ -26,6 +27,18 @@ class ExchangeCfg(BaseModel):
             raise ValueError("Leverage above 2x is blocked by the risk policy (Section C).")
         return v
 
+    @model_validator(mode="after")
+    def eu_mainnet_blocked(self) -> "ExchangeCfg":
+        # api.bybit.eu mainnet only supports the API-broker "third-party app" flow —
+        # regular accounts cannot bot-trade EU mainnet. Live trading must use the
+        # bybit.com (e.g. Ukrainian) account: tld "com" + ETHUSDT.
+        if not self.testnet and self.tld == "eu":
+            raise ValueError(
+                "Mainnet via bybit.eu API is not available for regular users. "
+                "Use the bybit.com account: tld: \"com\", symbol: ETHUSDT."
+            )
+        return self
+
 
 class TimeframesCfg(BaseModel):
     execution: str = "5"
@@ -37,6 +50,9 @@ class RiskCfg(BaseModel):
     daily_loss_halt_pct: float = Field(4.0, gt=0, le=20)
     max_drawdown_pct: float = Field(12.0, gt=0, le=50)
     stop_loss_atr_mult: float = Field(2.0, gt=0)
+    # Optional small-account simulation: virtual starting equity (e.g. 100) so a
+    # rich testnet wallet behaves like the real account you plan to fund. None = off.
+    equity_cap: float | None = Field(None, gt=0)
 
 
 class StrategyCfg(BaseModel):

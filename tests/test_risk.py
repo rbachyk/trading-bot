@@ -87,3 +87,24 @@ def test_trailing_stop_ratchets_down_for_short_never_up():
 # ---- costs -----------------------------------------------------------
 def test_round_trip_cost():
     assert risk.round_trip_cost_pct(0.055, 0.02) == pytest.approx(0.15)
+
+
+# ---- equity_cap simulation -----------------------------------------------------------
+def test_virtual_equity_tracks_pnl_from_cap():
+    # testnet wallet 100_000, cap 100: start at 100
+    assert risk.virtual_equity(100_000, 100_000, 100) == 100
+    # +25 real PnL -> virtual 125
+    assert risk.virtual_equity(100_025, 100_000, 100) == 125
+    # -30 real PnL -> virtual 70
+    assert risk.virtual_equity(99_970, 100_000, 100) == 70
+
+
+def test_virtual_equity_floors_at_zero():
+    assert risk.virtual_equity(99_000, 100_000, 100) == 0.0
+
+
+def test_breakers_operate_on_virtual_equity():
+    # -4% on the virtual $100 account trips the daily breaker
+    v_start = risk.virtual_equity(100_000, 100_000, 100)
+    v_now = risk.virtual_equity(99_996, 100_000, 100)   # lost 4 USDC
+    assert risk.daily_loss_breached(v_start, v_now, P) is True

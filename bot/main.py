@@ -54,7 +54,7 @@ def cmd_status() -> None:
                          cfg.exchange.symbol, cfg.exchange.category, on_error=db.log_error)
     print(f"mode      : {'TESTNET' if cfg.exchange.testnet else 'MAINNET'}")
     print(f"halted    : {db.is_halted()} ({db.get_state('halt_reason')})")
-    print(f"equity    : {client.get_equity():.2f} USDT")
+    print(f"equity    : {client.get_equity():.2f} USDC")
     print(f"position  : {client.get_position()}")
     print(f"open trade: {dict(db.get_open_trade()) if db.get_open_trade() else None}")
 

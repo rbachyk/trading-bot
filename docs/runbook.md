@@ -32,3 +32,21 @@ journalctl -u tradingbot -f                # live logs
 3. Restart-reconciliation verified with an open position
 4. Alert delivery verified end-to-end (Phase 2)
 5. You confirm capital is fully loseable and re-confirm sizing/leverage/drawdown numbers
+
+## Account topology (this user's setup)
+- Testnet: account on testnet.bybit.eu (EU entity, USDC instruments only) -> config: tld "eu", symbol ETHPERP. pybit then targets api-testnet.bybit.eu.
+- Mainnet: Ukrainian account on bybit.com -> when going live: tld "com", symbol ETHUSDT. (bybit.eu mainnet API is broker-only and is hard-blocked in config validation.)
+- Note: mainnet quote is USDT, testnet quote is USDC. Fees/tick/lot may differ slightly between ETHPERP and ETHUSDT; re-check minOrderQty before the live switch.
+
+## Small-account simulation (equity_cap)
+`risk.equity_cap: 100` makes sizing AND breakers act as if the account holds a virtual
+balance = cap + PnL since the cap was set, regardless of the real testnet balance.
+This mirrors the planned funding ladder. To "add funds" in simulation, raise the cap
+(e.g. 100 -> 1000): the baseline rebases automatically and is logged.
+Set `equity_cap: null` before mainnet — live trading sizes on real equity.
+
+## Funding ladder reality check
+Minimum order size is exchange-enforced (e.g. 0.01 ETH on ETHUSDT). At ~$2-3k ETH that
+is $20-30 notional. With leverage capped at 1-2x, a $10 account CANNOT place the minimum
+order — the bot will correctly size to 0 and never trade. First viable live step is ~$100.
+Ladder: $100 -> $1k -> $5k -> $10k, advancing only after stable growth at each step.

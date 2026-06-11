@@ -29,7 +29,7 @@ class Engine:
         self.db = Database(cfg.db.path)
         self.client = BybitClient(
             cfg.api_key, cfg.api_secret, cfg.exchange.testnet,
-            cfg.exchange.symbol, cfg.exchange.category,
+            cfg.exchange.symbol, cfg.exchange.category, tld=cfg.exchange.tld,
             on_error=self.db.log_error,
         )
         s = cfg.strategy
@@ -110,9 +110,22 @@ class Engine:
                 self.db.log_error("cycle", repr(e))
             time.sleep(self.cfg.loop.poll_seconds)
 
+    def _effective_equity(self, real_equity: float) -> float:
+        """Apply the equity_cap simulation if configured (see config.yaml)."""
+        cap = self.cfg.risk.equity_cap
+        if cap is None:
+            return real_equity
+        stored_cap = self.db.get_state("cap_value")
+        if stored_cap != str(cap):  # cap newly set or changed -> rebase
+            self.db.set_state("cap_value", str(cap))
+            self.db.set_state("cap_baseline", str(real_equity))
+            log.info("equity_cap simulation (re)based: cap=%.2f baseline=%.2f", cap, real_equity)
+        baseline = float(self.db.get_state("cap_baseline", str(real_equity)))
+        return risk.virtual_equity(real_equity, baseline, cap)
+
     def cycle(self) -> None:
-        equity = self.client.get_equity()
-        self.db.log_equity(equity)
+        equity = self._effective_equity(self.client.get_equity())
+        self.db.log_equity(equity)  # snapshots are virtual when equity_cap is set
 
         if not self._risk_gates(equity):
             return

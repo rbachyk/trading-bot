@@ -23,13 +23,14 @@ RETRYABLE = (ConnectionError, TimeoutError, OSError)
 
 class BybitClient:
     def __init__(self, api_key: str, api_secret: str, testnet: bool,
-                 symbol: str, category: str,
+                 symbol: str, category: str, tld: str = "com",
                  on_error: Callable[[str, str], None] | None = None):
         self.symbol = symbol
         self.category = category
         self._on_error = on_error or (lambda ctx, msg: None)
-        self.http = HTTP(testnet=testnet, api_key=api_key, api_secret=api_secret)
-        self._qty_step, self._min_qty = self._fetch_qty_filters()
+        # tld="eu" -> api(-testnet).bybit.eu for accounts registered on bybit.eu
+        self.http = HTTP(testnet=testnet, api_key=api_key, api_secret=api_secret, tld=tld)
+        self._qty_step, self._min_qty, self._tick = self._fetch_filters()
 
     # ---- plumbing -----------------------------------------------------------
     def _call(self, fn, ctx: str, retries: int = 4, **kwargs) -> dict:
@@ -56,11 +57,19 @@ class BybitClient:
         self._on_error(ctx, f"exhausted retries: {last_exc}")
         raise RuntimeError(f"{ctx}: exhausted retries ({last_exc})")
 
-    def _fetch_qty_filters(self) -> tuple[float, float]:
+    def _fetch_filters(self) -> tuple[float, float, float]:
         resp = self._call(self.http.get_instruments_info, "instruments_info",
                           category=self.category, symbol=self.symbol)
-        f = resp["result"]["list"][0]["lotSizeFilter"]
-        return float(f["qtyStep"]), float(f["minOrderQty"])
+        info = resp["result"]["list"][0]
+        lot = info["lotSizeFilter"]
+        tick = float(info["priceFilter"]["tickSize"])
+        return float(lot["qtyStep"]), float(lot["minOrderQty"]), tick
+
+    def round_price(self, price: float) -> float:
+        """Round to the instrument tick size (replaces the old hardcoded 2dp)."""
+        ticks = round(price / self._tick)
+        # keep a sane decimal representation
+        return round(ticks * self._tick, 10)
 
     def round_qty(self, qty: float) -> float:
         step = self._qty_step
@@ -117,14 +126,14 @@ class BybitClient:
             self.http.place_order, "place_order",
             category=self.category, symbol=self.symbol,
             side=side, orderType="Market",
-            qty=str(qty), stopLoss=str(round(stop_loss, 2)),
+            qty=str(qty), stopLoss=str(self.round_price(stop_loss)),
             timeInForce="IOC", reduceOnly=False, positionIdx=0,
         )
 
     def update_stop(self, stop_loss: float) -> None:
         self._call(self.http.set_trading_stop, "set_trading_stop",
                    category=self.category, symbol=self.symbol,
-                   stopLoss=str(round(stop_loss, 2)), positionIdx=0)
+                   stopLoss=str(self.round_price(stop_loss)), positionIdx=0)
 
     def close_position_market(self) -> dict | None:
         pos = self.get_position()
