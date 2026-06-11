@@ -23,13 +23,14 @@ RETRYABLE = (ConnectionError, TimeoutError, OSError)
 
 class BybitClient:
     def __init__(self, api_key: str, api_secret: str, testnet: bool,
-                 symbol: str, category: str, tld: str = "com",
+                 symbol: str, category: str, tld: str = "com", demo: bool = False,
                  on_error: Callable[[str, str], None] | None = None):
         self.symbol = symbol
         self.category = category
         self._on_error = on_error or (lambda ctx, msg: None)
-        # tld="eu" -> api(-testnet).bybit.eu for accounts registered on bybit.eu
-        self.http = HTTP(testnet=testnet, api_key=api_key, api_secret=api_secret, tld=tld)
+        # tld="eu" -> api(-testnet).bybit.eu | demo=True -> api-demo.bybit.com
+        self.http = HTTP(testnet=testnet, demo=demo,
+                         api_key=api_key, api_secret=api_secret, tld=tld)
         self._qty_step, self._min_qty, self._tick = self._fetch_filters()
 
     # ---- plumbing -----------------------------------------------------------
@@ -60,10 +61,27 @@ class BybitClient:
     def _fetch_filters(self) -> tuple[float, float, float]:
         resp = self._call(self.http.get_instruments_info, "instruments_info",
                           category=self.category, symbol=self.symbol)
+        if not resp["result"]["list"]:
+            raise RuntimeError(
+                f"{self.symbol} not found in this environment. "
+                f"Live alternatives: {self.list_live_symbols()}"
+            )
         info = resp["result"]["list"][0]
+        if info.get("status") != "Trading":
+            # e.g. ErrCode 110074 territory: contract listed but not live (EU testnet quirk)
+            raise RuntimeError(
+                f"{self.symbol} exists but status={info.get('status')!r} — not tradable here. "
+                f"Live alternatives in this environment: {self.list_live_symbols()}"
+            )
         lot = info["lotSizeFilter"]
         tick = float(info["priceFilter"]["tickSize"])
         return float(lot["qtyStep"]), float(lot["minOrderQty"]), tick
+
+    def list_live_symbols(self, base_coin: str = "ETH") -> list[str]:
+        """All currently tradable linear contracts for base_coin in THIS environment."""
+        resp = self._call(self.http.get_instruments_info, "instruments_info_all",
+                          category=self.category, baseCoin=base_coin)
+        return [i["symbol"] for i in resp["result"]["list"] if i.get("status") == "Trading"]
 
     def round_price(self, price: float) -> float:
         """Round to the instrument tick size (replaces the old hardcoded 2dp)."""

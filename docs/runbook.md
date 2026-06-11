@@ -50,3 +50,14 @@ Minimum order size is exchange-enforced (e.g. 0.01 ETH on ETHUSDT). At ~$2-3k ET
 is $20-30 notional. With leverage capped at 1-2x, a $10 account CANNOT place the minimum
 order — the bot will correctly size to 0 and never trade. First viable live step is ~$100.
 Ladder: $100 -> $1k -> $5k -> $10k, advancing only after stable growth at each step.
+
+## Test environments, ranked for this user
+1. DEMO TRADING (recommended): bybit.com production account (the Ukrainian one) -> switch
+   the web UI to Demo Trading mode, create an API key THERE, set config
+   `testnet: false`, `demo: true`, `tld: "com"`, `symbol: ETHUSDT`.
+   Real instruments/fees/lots, demo funds — closest to live. Live Gate soak runs here.
+2. EU testnet (testnet.bybit.eu): USDC sandbox; ETHPERP is listed but NOT live
+   (ErrCode 110074). Run `python -m bot.main instruments` to see what is tradable;
+   only useful if a live ETH contract exists there.
+Demo/testnet differences vs live (funding, liquidity, fills) still apply — the Live Gate
+72h soak validates plumbing, not strategy performance.

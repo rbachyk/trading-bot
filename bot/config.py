@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class ExchangeCfg(BaseModel):
     testnet: bool = True
+    demo: bool = False        # Bybit Demo Trading: api-demo.bybit.com, key from the
+                              # PRODUCTION bybit.com account while in Demo mode.
+                              # Requires testnet: false. Demo funds, real instruments.
     tld: str = "com"          # "eu" for testnet.bybit.eu accounts; "com" for bybit.com
     symbol: str = "ETHUSDT"
     category: str = "linear"
@@ -32,7 +35,11 @@ class ExchangeCfg(BaseModel):
         # api.bybit.eu mainnet only supports the API-broker "third-party app" flow —
         # regular accounts cannot bot-trade EU mainnet. Live trading must use the
         # bybit.com (e.g. Ukrainian) account: tld "com" + ETHUSDT.
-        if not self.testnet and self.tld == "eu":
+        if self.demo and self.testnet:
+            raise ValueError("Demo trading uses testnet: false AND demo: true (pybit demo mode).")
+        if self.demo and self.tld != "com":
+            raise ValueError("Demo trading is on bybit.com: set tld: \"com\".")
+        if not self.testnet and not self.demo and self.tld == "eu":
             raise ValueError(
                 "Mainnet via bybit.eu API is not available for regular users. "
                 "Use the bybit.com account: tld: \"com\", symbol: ETHUSDT."

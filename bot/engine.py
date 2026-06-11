@@ -29,7 +29,8 @@ class Engine:
         self.db = Database(cfg.db.path)
         self.client = BybitClient(
             cfg.api_key, cfg.api_secret, cfg.exchange.testnet,
-            cfg.exchange.symbol, cfg.exchange.category, tld=cfg.exchange.tld,
+            cfg.exchange.symbol, cfg.exchange.category,
+            tld=cfg.exchange.tld, demo=cfg.exchange.demo,
             on_error=self.db.log_error,
         )
         s = cfg.strategy
@@ -66,7 +67,7 @@ class Engine:
             self.db.close_trade(open_trade["id"], float(df["close"].iloc[-1]), 0.0, 0.0)
 
     def start(self) -> None:
-        mode = "TESTNET" if self.cfg.exchange.testnet else "MAINNET"
+        mode = "DEMO" if self.cfg.exchange.demo else ("TESTNET" if self.cfg.exchange.testnet else "MAINNET")
         log.info("Starting engine on %s (%s)", self.cfg.exchange.symbol, mode)
         self.client.set_leverage(self.cfg.exchange.leverage)
         self.reconcile()

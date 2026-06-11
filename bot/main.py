@@ -24,7 +24,7 @@ log = logging.getLogger("main")
 
 def cmd_run() -> None:
     cfg = load_config()
-    if not cfg.exchange.testnet:
+    if not cfg.exchange.testnet and not cfg.exchange.demo:
         print("MAINNET MODE. Live Gate (docs/runbook.md Section H) must be fully passed.")
         if input("Type 'I ACCEPT FULL LOSS RISK' to continue: ") != "I ACCEPT FULL LOSS RISK":
             sys.exit("Aborted.")
@@ -54,16 +54,31 @@ def cmd_status() -> None:
                          cfg.exchange.symbol, cfg.exchange.category, on_error=db.log_error)
     print(f"mode      : {'TESTNET' if cfg.exchange.testnet else 'MAINNET'}")
     print(f"halted    : {db.is_halted()} ({db.get_state('halt_reason')})")
-    print(f"equity    : {client.get_equity():.2f} USDC")
+    print(f"equity    : {client.get_equity():.2f} USDT")
     print(f"position  : {client.get_position()}")
     print(f"open trade: {dict(db.get_open_trade()) if db.get_open_trade() else None}")
 
 
+def cmd_instruments() -> None:
+    """List ETH contracts actually tradable in the configured environment."""
+    cfg = load_config()
+    from pybit.unified_trading import HTTP
+    http = HTTP(testnet=cfg.exchange.testnet, demo=cfg.exchange.demo,
+                api_key=cfg.api_key, api_secret=cfg.api_secret, tld=cfg.exchange.tld)
+    resp = http.get_instruments_info(category=cfg.exchange.category, baseCoin="ETH")
+    print(f"env: testnet={cfg.exchange.testnet} demo={cfg.exchange.demo} tld={cfg.exchange.tld}")
+    for i in resp["result"]["list"]:
+        lot = i.get("lotSizeFilter", {})
+        print(f"  {i['symbol']:<16} status={i.get('status'):<10} quote={i.get('quoteCoin'):<5} "
+              f"minQty={lot.get('minOrderQty')} minNotional={lot.get('minNotionalValue', '-')}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="bot")
-    parser.add_argument("command", choices=["run", "kill", "resume", "status"])
+    parser.add_argument("command", choices=["run", "kill", "resume", "status", "instruments"])
     args = parser.parse_args()
-    {"run": cmd_run, "kill": cmd_kill, "resume": cmd_resume, "status": cmd_status}[args.command]()
+    {"run": cmd_run, "kill": cmd_kill, "resume": cmd_resume,
+     "status": cmd_status, "instruments": cmd_instruments}[args.command]()
 
 
 if __name__ == "__main__":

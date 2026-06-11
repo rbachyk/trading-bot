@@ -1,9 +1,10 @@
 exchange:
-  testnet: true          # mainnet requires Live Gate (docs/runbook.md) AND explicit change here
-  tld: "eu"              # YOUR SETUP: testnet account is on testnet.bybit.eu -> "eu".
+  testnet: false          # mainnet requires Live Gate (docs/runbook.md) AND explicit change here
+  demo: true
+  tld: "com"              # YOUR SETUP: testnet account is on testnet.bybit.eu -> "eu".
                          # Mainnet = Ukrainian account on bybit.com -> set "com" when going live.
                          # (mainnet + "eu" is blocked in code: EU mainnet API is broker-only)
-  symbol: ETHPERP        # USDC perpetual (EU testnet has USDC instruments only).
+  symbol: ETHUSDT        # USDC perpetual (EU testnet has USDC instruments only).
                          # Mainnet (bybit.com, UA account): switch to ETHUSDT.
   category: linear
   leverage: 1            # hard cap enforced in risk module; never raised silently
@@ -17,7 +18,7 @@ risk:
   daily_loss_halt_pct: 4.0   # circuit breaker [DEFAULT]
   max_drawdown_pct: 12.0     # kill switch from peak equity [DEFAULT]
   stop_loss_atr_mult: 2.0    # initial exchange-side stop distance
-  equity_cap: 100            # SIMULATION: treat the account as starting with this many USD(C),
+  equity_cap: 100            # SIMULATION (works in demo too): treat the account as starting with this many USD(C),
                              # regardless of real (testnet) balance. Sizing AND breakers use
                              # virtual equity = cap + PnL since cap was set. Set null to disable.
 
