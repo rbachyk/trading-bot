@@ -51,6 +51,23 @@ class Engine:
         self.running = False
 
     # ---- helpers -----------------------------------------------------------
+    def _env_signature(self) -> str:
+        e = self.cfg.exchange
+        return f"{e.testnet}|{e.demo}|{e.tld}|{e.symbol}|cap={self.cfg.risk.equity_cap}"
+
+    def _ensure_epoch(self) -> float:
+        """Equity scales are only comparable within one environment+cap combo.
+        On any change, start a new epoch: breakers and the cap baseline reset so
+        e.g. an old testnet peak can never trip the drawdown switch in demo."""
+        sig = self._env_signature()
+        if self.db.get_state("env_sig") != sig:
+            self.db.set_state("env_sig", sig)
+            self.db.set_state("epoch_start", str(time.time()))
+            self.db.set_state("cap_baseline", "")
+            log.warning("New equity epoch (environment/cap changed): %s — "
+                        "breaker baselines and cap baseline reset.", sig)
+        return float(self.db.get_state("epoch_start", "0") or 0)
+
     def _strategy_by_name(self, name: str):
         return self.meanrev if name == "meanrev" else self.momentum
 
@@ -58,13 +75,12 @@ class Engine:
         cap = self.cfg.risk.equity_cap
         if cap is None:
             return real_equity
-        stored_cap = self.db.get_state("cap_value")
-        if stored_cap != str(cap):
-            self.db.set_state("cap_value", str(cap))
+        baseline_s = self.db.get_state("cap_baseline", "")
+        if not baseline_s:  # new epoch -> rebase on first observed real equity
             self.db.set_state("cap_baseline", str(real_equity))
-            log.info("equity_cap simulation (re)based: cap=%.2f baseline=%.2f", cap, real_equity)
-        baseline = float(self.db.get_state("cap_baseline", str(real_equity)))
-        return risk.virtual_equity(real_equity, baseline, cap)
+            log.info("equity_cap rebased: cap=%.2f baseline=%.2f", cap, real_equity)
+            baseline_s = str(real_equity)
+        return risk.virtual_equity(real_equity, float(baseline_s), cap)
 
     # ---- startup -----------------------------------------------------------
     def reconcile(self) -> None:
@@ -91,6 +107,7 @@ class Engine:
         mode = "DEMO" if self.cfg.exchange.demo else ("TESTNET" if self.cfg.exchange.testnet else "MAINNET")
         log.info("Starting engine on %s (%s)", self.cfg.exchange.symbol, mode)
         self.client.set_leverage(self.cfg.exchange.leverage)
+        self._ensure_epoch()
         self.reconcile()
         self.running = True
         self.loop()
@@ -100,15 +117,16 @@ class Engine:
         if self.db.is_halted():
             return False
 
+        epoch = float(self.db.get_state("epoch_start", "0") or 0)
         day_start = dt.datetime.now(dt.timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0).timestamp()
-        dse = self.db.day_start_equity(day_start)
+        dse = self.db.day_start_equity(max(day_start, epoch))
         if dse and risk.daily_loss_breached(dse, equity, self.risk_params):
             self._emergency_flatten(
                 f"DAILY LOSS CIRCUIT BREAKER: -{self.risk_params.daily_loss_halt_pct}% reached")
             return False
 
-        peak = max(self.db.peak_equity(), equity)
+        peak = max(self.db.peak_equity(since=epoch), equity)
         if risk.drawdown_breached(peak, equity, self.risk_params):
             self._emergency_flatten(
                 f"MAX DRAWDOWN KILL SWITCH: -{self.risk_params.max_drawdown_pct}% from peak")
@@ -150,28 +168,49 @@ class Engine:
                 self.notify.error("cycle", repr(e))
             time.sleep(self.cfg.loop.poll_seconds)
 
+    def _book_external_close(self, open_trade) -> None:
+        """Position gone from the exchange (stop hit / kill switch / manual close):
+        book the REAL realized PnL. Prefer the exchange's closed-PnL record; fall
+        back to an estimate from the entry/stop prices. Never book 0."""
+        rec = None
+        try:
+            rec = self.client.get_last_closed_pnl()
+        except RuntimeError:
+            pass
+        if rec and rec["ts"] >= float(open_trade["ts"]) - 60:
+            net, exit_price = rec["pnl"], rec["exit"]
+            fees = 0.0  # included in the exchange's closedPnl
+        else:
+            exit_price = float(open_trade["stop_price"] or open_trade["entry_price"])
+            net, fees = risk.estimate_net_pnl(
+                open_trade["side"], float(open_trade["qty"]),
+                float(open_trade["entry_price"]), exit_price,
+                self.cfg.costs.taker_fee_pct)
+        self.db.close_trade(open_trade["id"], exit_price, net, fees)
+        log.info("Booked external close (trade %s): net %.4f @ %.2f",
+                 open_trade["id"], net, exit_price)
+        self.notify.exited(open_trade["side"], exit_price, net, "closed on exchange (stop/kill/manual)")
+
     def cycle(self) -> None:
         equity = self._effective_equity(self.client.get_equity())
         self.db.log_equity(equity)
+
+        # bookkeeping FIRST, even when halted — a kill-switch flatten must be
+        # booked immediately, not after a resume
+        pos = self.client.get_position()
+        open_trade = self.db.get_open_trade()
+        if open_trade and not pos:
+            self._book_external_close(open_trade)
 
         if not self._risk_gates(equity):
             return
 
         regime = self._current_regime()
         df = self.client.get_klines(self.cfg.timeframes.execution, limit=200)
-        pos = self.client.get_position()
 
         if pos:
             self._manage_position(pos, df)
             return
-
-        # position may have been closed by the exchange stop since last cycle
-        open_trade = self.db.get_open_trade()
-        if open_trade:
-            last_close = float(df["close"].iloc[-1])
-            self.db.close_trade(open_trade["id"], last_close, 0.0, 0.0)
-            log.info("Position closed by exchange stop (trade %s).", open_trade["id"])
-            self.notify.exited(open_trade["side"], last_close, 0.0, "exchange stop hit")
 
         if regime == rg.CHAOS:
             return  # stand aside: no new entries
@@ -196,13 +235,22 @@ class Engine:
 
         if sig.action == "exit":
             self.client.close_position_market()
-            fees = pos["qty"] * sig.close * (self.cfg.costs.taker_fee_pct / 100)
-            pnl = (sig.close - pos["entry"]) * pos["qty"] * (1 if pos["side"] == "Buy" else -1)
-            net = pnl - fees
+            time.sleep(1.0)  # let the exchange settle the closed-PnL record
+            rec = None
+            try:
+                rec = self.client.get_last_closed_pnl()
+            except RuntimeError:
+                pass
+            if rec and rec["ts"] >= time.time() - 120:
+                net, exit_price, fees = rec["pnl"], rec["exit"], 0.0
+            else:
+                exit_price = sig.close
+                net, fees = risk.estimate_net_pnl(pos["side"], pos["qty"], pos["entry"],
+                                                  exit_price, self.cfg.costs.taker_fee_pct)
             if open_trade:
-                self.db.close_trade(open_trade["id"], sig.close, net, fees)
-            log.info("EXIT %s: %s | net est %.2f", pos["side"], sig.reason, net)
-            self.notify.exited(pos["side"], sig.close, net, sig.reason)
+                self.db.close_trade(open_trade["id"], exit_price, net, fees)
+            log.info("EXIT %s: %s | net %.4f", pos["side"], sig.reason, net)
+            self.notify.exited(pos["side"], exit_price, net, sig.reason)
 
     def _try_enter(self, strat, strat_name: str, df, equity: float, regime: str) -> None:
         sig = strat.evaluate(df, None)

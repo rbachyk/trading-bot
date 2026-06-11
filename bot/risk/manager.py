@@ -67,6 +67,16 @@ def trailing_stop(side: str, current_stop: float, close: float, atr: float, mult
     return min(current_stop, candidate)
 
 
+def estimate_net_pnl(side: str, qty: float, entry: float, exit_price: float,
+                     taker_fee_pct: float) -> tuple[float, float]:
+    """(net_pnl, fees) estimate for a round trip. Fallback only — prefer the
+    exchange's own closed-PnL record, which includes its exact fee math."""
+    d = 1 if side == "Buy" else -1
+    gross = (exit_price - entry) * qty * d
+    fees = qty * (entry + exit_price) * taker_fee_pct / 100.0
+    return gross - fees, fees
+
+
 def virtual_equity(real_equity: float, baseline: float, cap: float) -> float:
     """Small-account simulation: pretend the account started at `cap` when the real
     (e.g. testnet) wallet held `baseline`. Virtual equity = cap + PnL since then.

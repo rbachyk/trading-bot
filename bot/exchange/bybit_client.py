@@ -177,6 +177,18 @@ class BybitClient:
         self._call(self.http.cancel_all_orders, "cancel_all",
                    category=self.category, symbol=self.symbol)
 
+    def get_last_closed_pnl(self) -> dict | None:
+        """Most recent realized-PnL record (v5 /position/closed-pnl). The exchange's
+        own number includes its exact fees — always preferred over our estimate."""
+        resp = self._call(self.http.get_closed_pnl, "closed_pnl",
+                          category=self.category, symbol=self.symbol, limit=1)
+        lst = resp["result"]["list"]
+        if not lst:
+            return None
+        r = lst[0]
+        return {"pnl": float(r["closedPnl"]), "exit": float(r["avgExitPrice"]),
+                "qty": float(r["qty"]), "ts": float(r["updatedTime"]) / 1000.0}
+
     # ---- safety -------------------------------------------------------------------
     def flatten(self) -> None:
         """Kill-switch primitive: cancel everything, close any position."""

@@ -141,8 +141,11 @@ class Database:
         ).fetchone()
 
     # ---- equity queries for risk checks -------------------------------------
-    def peak_equity(self) -> float:
-        row = self.conn.execute("SELECT MAX(equity) AS m FROM equity_snapshots").fetchone()
+    def peak_equity(self, since: float = 0.0) -> float:
+        """Peak since `since` (epoch start). Mixing equity scales from different
+        environments/caps produced false drawdown halts — never query across epochs."""
+        row = self.conn.execute(
+            "SELECT MAX(equity) AS m FROM equity_snapshots WHERE ts >= ?", (since,)).fetchone()
         return float(row["m"]) if row and row["m"] is not None else 0.0
 
     def day_start_equity(self, day_start_ts: float) -> float | None:
