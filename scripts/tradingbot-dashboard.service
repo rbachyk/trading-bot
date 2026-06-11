@@ -1,0 +1,15 @@
+# Dashboard unit. Binds to localhost ONLY — access via SSH tunnel:
+#   ssh -L 8080:127.0.0.1:8080 user@vps   then open http://localhost:8080
+[Unit]
+Description=trading bot dashboard
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/trading-bot
+ExecStart=/opt/trading-bot/.venv/bin/uvicorn dashboard.app:app --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/trading-bot/.env
+
+[Install]
+WantedBy=multi-user.target

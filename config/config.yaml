@@ -1,27 +1,19 @@
 exchange:
-  testnet: false          # mainnet requires Live Gate (docs/runbook.md) AND explicit change here
+  testnet: false
   demo: true
-  tld: "com"              # YOUR SETUP: testnet account is on testnet.bybit.eu -> "eu".
-                         # Mainnet = Ukrainian account on bybit.com -> set "com" when going live.
-                         # (mainnet + "eu" is blocked in code: EU mainnet API is broker-only)
-  symbol: ETHUSDT        # USDC perpetual (EU testnet has USDC instruments only).
-                         # Mainnet (bybit.com, UA account): switch to ETHUSDT.
+  tld: com
+  symbol: ETHUSDT
   category: linear
-  leverage: 1            # hard cap enforced in risk module; never raised silently
-
+  leverage: 1
 timeframes:
-  execution: "5"         # 5m candles [DEFAULT - 1m rejected: loses to fees]
-  filter: "15"           # 15m regime filter (Phase 2)
-
+  execution: '5'
+  filter: '15'
 risk:
-  max_position_pct: 1.5      # max % of equity risked per trade [DEFAULT]
-  daily_loss_halt_pct: 4.0   # circuit breaker [DEFAULT]
-  max_drawdown_pct: 12.0     # kill switch from peak equity [DEFAULT]
-  stop_loss_atr_mult: 2.0    # initial exchange-side stop distance
-  equity_cap: 100            # SIMULATION (works in demo too): treat the account as starting with this many USD(C),
-                             # regardless of real (testnet) balance. Sizing AND breakers use
-                             # virtual equity = cap + PnL since cap was set. Set null to disable.
-
+  max_position_pct: 1.5
+  daily_loss_halt_pct: 4.0
+  max_drawdown_pct: 12.0
+  stop_loss_atr_mult: 2.0
+  equity_cap: 100
 strategy:
   name: momentum
   ema_fast: 20
@@ -29,13 +21,10 @@ strategy:
   donchian_period: 20
   atr_period: 14
   trail_atr_mult: 2.5
-
 costs:
   taker_fee_pct: 0.055
   slippage_pct: 0.02
-
 loop:
   poll_seconds: 15
-
 db:
   path: data/bot.db

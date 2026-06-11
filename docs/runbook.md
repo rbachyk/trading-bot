@@ -61,3 +61,25 @@ Ladder: $100 -> $1k -> $5k -> $10k, advancing only after stable growth at each s
    only useful if a live ETH contract exists there.
 Demo/testnet differences vs live (funding, liquidity, fills) still apply — the Live Gate
 72h soak validates plumbing, not strategy performance.
+
+## Phase 2 operations
+### Dashboard
+- VPS: `sudo cp scripts/tradingbot-dashboard.service /etc/systemd/system/ && sudo systemctl enable --now tradingbot-dashboard`
+- It binds to 127.0.0.1 ONLY. Access from the Mac: `ssh -L 8080:127.0.0.1:8080 user@vps`, open http://localhost:8080
+- If you must expose it, set DASHBOARD_TOKEN in .env and put it behind HTTPS — an
+  unauthenticated kill switch on the internet is a capital-preservation failure.
+- Config editor validates with the same rules as startup and requires a service
+  restart to apply: `sudo systemctl restart tradingbot`.
+
+### Telegram alerts
+1. In Telegram, talk to @BotFather -> /newbot -> copy the token to TELEGRAM_BOT_TOKEN
+2. Send any message to your new bot
+3. Open https://api.telegram.org/bot<TOKEN>/getUpdates -> "chat":{"id": ...} -> TELEGRAM_CHAT_ID
+4. Restart services. Alerts cover: entries, exits, breakers/halts, regime changes, cycle errors.
+   Alert failures never block trading (best-effort, logged to the errors table).
+
+### Regime behavior
+The bot now trades momentum only in TRENDING, mean reversion only in RANGING, and
+stands aside in CHAOS (no new entries; an existing position keeps being managed by
+the strategy that opened it). Standing aside is expected behavior, not a bug —
+don't "fix" quiet periods by loosening thresholds without Phase 3 evidence.

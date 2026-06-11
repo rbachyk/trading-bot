@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trading-bot</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --txt:#e6e6e6; --dim:#8a8f98;
+          --green:#3fb950; --red:#f85149; --amber:#d29922; --line:#2d313a; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--txt); font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif; padding:16px; }
+  h1 { font-size:18px; margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .card h3 { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+  .big { font-size:20px; font-weight:600; }
+  .pos { color:var(--green); } .neg { color:var(--red); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  button { border:0; border-radius:6px; padding:9px 16px; font-weight:600; cursor:pointer; color:#fff; }
+  .b-stop { background:var(--amber); } .b-kill { background:var(--red); } .b-resume { background:var(--green); }
+  canvas { width:100%; height:220px; background:var(--card); border:1px solid var(--line); border-radius:8px; margin-bottom:14px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; }
+  #banner { display:none; background:var(--red); color:#fff; padding:8px 12px; border-radius:6px; margin-bottom:12px; font-weight:600; }
+  textarea { width:100%; height:260px; background:var(--card); color:var(--txt); border:1px solid var(--line);
+             border-radius:8px; padding:10px; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  #cfgmsg { margin-top:6px; color:var(--dim); }
+  details { margin-bottom:14px; } summary { cursor:pointer; color:var(--dim); margin-bottom:8px; }
+</style>
+</head>
+<body>
+<h1>ETH bot <span id="regime" style="color:var(--dim)"></span></h1>
+<div id="banner"></div>
+
+<div class="grid">
+  <div class="card"><h3>Equity</h3><div class="big" id="equity">–</div></div>
+  <div class="card"><h3>Day</h3><div class="big" id="pnl-day">–</div><div id="meta-day" style="color:var(--dim)"></div></div>
+  <div class="card"><h3>Week</h3><div class="big" id="pnl-week">–</div><div id="meta-week" style="color:var(--dim)"></div></div>
+  <div class="card"><h3>Month</h3><div class="big" id="pnl-month">–</div><div id="meta-month" style="color:var(--dim)"></div></div>
+  <div class="card"><h3>All time</h3><div class="big" id="pnl-all_time">–</div><div id="meta-all_time" style="color:var(--dim)"></div></div>
+</div>
+
+<div class="row">
+  <button class="b-stop" onclick="ctl('stop','Stop trading? Position and stop stay on the exchange.')">Stop</button>
+  <button class="b-resume" onclick="ctl('resume','Resume trading?')">Resume</button>
+  <button class="b-kill" onclick="ctl('kill','KILL SWITCH: cancel all orders, market-close the position, halt. Proceed?')">KILL</button>
+</div>
+
+<canvas id="chart" width="900" height="220"></canvas>
+
+<div class="card" style="margin-bottom:14px"><h3>Open position</h3><div id="position">–</div></div>
+
+<details>
+  <summary>Config editor (validated; restart required to apply)</summary>
+  <textarea id="cfg" spellcheck="false"></textarea>
+  <div class="row" style="margin-top:8px">
+    <button class="b-resume" onclick="saveCfg()">Validate &amp; save</button>
+  </div>
+  <div id="cfgmsg"></div>
+</details>
+
+<div class="card"><h3>Recent trades</h3>
+  <table id="trades"><thead><tr>
+    <th>id</th><th>side</th><th>qty</th><th>entry</th><th>exit</th><th>net pnl</th><th>strategy</th><th>regime</th><th>status</th>
+  </tr></thead><tbody></tbody></table>
+</div>
+
+<script>
+const T = new URLSearchParams(location.search).get('token');
+const q = p => p + (T ? (p.includes('?')?'&':'?') + 'token=' + T : '');
+const fmt = v => (v>=0?'+':'') + v.toFixed(2);
+
+async function ctl(action, msg) {
+  if (!confirm(msg)) return;
+  const r = await fetch(q('/api/control/'+action), {method:'POST'});
+  alert((await r.json()).msg); refresh();
+}
+
+function drawChart(pts) {
+  const c = document.getElementById('chart'), x = c.getContext('2d');
+  x.clearRect(0,0,c.width,c.height);
+  if (pts.length < 2) return;
+  const vs = pts.map(p=>p.equity), mn = Math.min(...vs), mx = Math.max(...vs), pad = 12;
+  const sx = i => pad + i*(c.width-2*pad)/(pts.length-1);
+  const sy = v => mx===mn ? c.height/2 : c.height-pad-(v-mn)*(c.height-2*pad)/(mx-mn);
+  x.strokeStyle = vs[vs.length-1] >= vs[0] ? '#3fb950' : '#f85149';
+  x.lineWidth = 1.6; x.beginPath();
+  pts.forEach((p,i)=> i ? x.lineTo(sx(i),sy(p.equity)) : x.moveTo(sx(0),sy(p.equity)));
+  x.stroke();
+  x.fillStyle = '#8a8f98'; x.font = '11px monospace';
+  x.fillText(mx.toFixed(2), pad, 14); x.fillText(mn.toFixed(2), pad, c.height-4);
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch(q('/api/summary'))).json();
+    document.getElementById('equity').textContent = s.equity!=null ? s.equity.toFixed(2) : '–';
+    document.getElementById('regime').textContent = '· ' + s.regime + (s.halted ? ' · HALTED' : '');
+    const b = document.getElementById('banner');
+    b.style.display = s.halted ? 'block' : 'none';
+    b.textContent = s.halted ? 'HALTED: ' + (s.halt_reason||'') : '';
+    for (const w of ['day','week','month','all_time']) {
+      const el = document.getElementById('pnl-'+w);
+      el.textContent = fmt(s[w].pnl);
+      el.className = 'big ' + (s[w].pnl >= 0 ? 'pos':'neg');
+      document.getElementById('meta-'+w).textContent =
+        s[w].trades + ' trades' + (s[w].win_rate!=null ? ' · ' + s[w].win_rate + '% win' : '');
+    }
+    drawChart(await (await fetch(q('/api/equity'))).json());
+    const pos = (await (await fetch(q('/api/position'))).json()).position;
+    document.getElementById('position').textContent = pos
+      ? `${pos.side} ${pos.qty} @ ${pos.entry} | stop ${pos.stop ?? 'NONE'}` : 'flat';
+    const tb = document.querySelector('#trades tbody'); tb.innerHTML = '';
+    for (const t of await (await fetch(q('/api/trades'))).json()) {
+      tb.insertAdjacentHTML('beforeend',
+        `<tr><td>${t.id}</td><td>${t.side}</td><td>${t.qty}</td><td>${t.entry_price??''}</td>` +
+        `<td>${t.exit_price??''}</td><td class="${(t.pnl??0)>=0?'pos':'neg'}">${t.pnl!=null?fmt(t.pnl):''}</td>` +
+        `<td>${t.strategy??''}</td><td>${t.regime??''}</td><td>${t.status}</td></tr>`);
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function loadCfg() {
+  const cfg = await (await fetch(q('/api/config'))).json();
+  document.getElementById('cfg').value = JSON.stringify(cfg, null, 2);
+}
+async function saveCfg() {
+  const m = document.getElementById('cfgmsg');
+  try {
+    const body = JSON.parse(document.getElementById('cfg').value);
+    const r = await fetch(q('/api/config'), {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const j = await r.json();
+    m.textContent = r.ok ? j.msg : 'REJECTED: ' + JSON.stringify(j.detail);
+  } catch(e) { m.textContent = 'invalid JSON: ' + e; }
+}
+
+refresh(); loadCfg(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>
