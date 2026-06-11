@@ -83,3 +83,24 @@ The bot now trades momentum only in TRENDING, mean reversion only in RANGING, an
 stands aside in CHAOS (no new entries; an existing position keeps being managed by
 the strategy that opened it). Standing aside is expected behavior, not a bug —
 don't "fix" quiet periods by loosening thresholds without Phase 3 evidence.
+
+## Phase 3: supervised improvement loop (Section F)
+1. Fetch history (production market data, public, no key): `python -m backtest.data --days 60`
+2. Run the optimizer offline: `python -m backtest.optimizer --days 60`
+   - Walk-forward: 21d train / 7d test rolling windows, bounded 48-combo grid
+   - Score = net return / (1 + max drawdown) — steady growth over fast growth
+   - All numbers are NET of taker fees + slippage; funding/latency are unmodeled
+   - A proposal is written ONLY if the candidate beats current params out-of-sample
+     by a margin AND wins most windows. "No proposal" is a valid, honest result.
+3. Review on the dashboard (Optimizer proposals panel): evidence shows OOS vs
+   current, stability, caveats. Approve -> config.yaml updated (validated),
+   restart the bot, commit with the suggested git message. Reject -> archived.
+4. Re-run on demand (weekly is plenty at 5m frequency). NEVER automate approval.
+
+Runtime note: a 60-day run over the full grid takes minutes (per-bar simulation
+reusing the exact live strategy code — fidelity over speed, deliberately).
+
+## Live Gate checker
+`python -m bot.main gate` auto-verifies what it can (72h continuity from equity
+snapshots, breaker/kill events present, telegram configured, demo/equity_cap
+state) and lists the manual confirmations. Mainnet help stays refused until all pass.

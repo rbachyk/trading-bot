@@ -60,3 +60,41 @@ def test_token_auth_when_set():
         assert client.get("/api/summary?token=s3cret").status_code == 200
     finally:
         del os.environ["DASHBOARD_TOKEN"]
+
+
+
+
+def test_proposals_review_and_approve(tmp_path):
+    import json
+    from pathlib import Path
+    import dashboard.app as dash
+
+    db = seed()
+    pid = db.add_proposal(
+        json.dumps({"ema_fast": 10, "stop_loss_atr_mult": 1.5}),
+        json.dumps({"mean_oos_best_pct": 2.1, "mean_oos_current_pct": 0.4,
+                    "candidate_stability": 0.6, "windows": [], "caveats": "historical"}))
+
+    ps = client.get("/api/proposals").json()
+    assert any(p["id"] == pid and p["status"] == "pending" for p in ps)
+
+    original = dash.CFG_PATH.read_text()
+    try:
+        r = client.post(f"/api/proposals/{pid}/approve")
+        assert r.status_code == 200 and "RESTART" in r.json()["msg"]
+        import yaml as _y
+        raw = _y.safe_load(dash.CFG_PATH.read_text())
+        assert raw["strategy"]["ema_fast"] == 10
+        assert raw["risk"]["stop_loss_atr_mult"] == 1.5
+        # approving twice must conflict
+        assert client.post(f"/api/proposals/{pid}/approve").status_code == 409
+    finally:
+        dash.CFG_PATH.write_text(original)
+
+
+def test_proposal_reject():
+    import json
+    db = seed()
+    pid = db.add_proposal(json.dumps({"ema_fast": 12}), json.dumps({"windows": []}))
+    assert client.post(f"/api/proposals/{pid}/reject").json()["ok"]
+    assert [p for p in client.get("/api/proposals").json() if p["id"] == pid][0]["status"] == "rejected"

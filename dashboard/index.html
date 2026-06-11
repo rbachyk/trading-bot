@@ -60,6 +60,14 @@
   <div id="cfgmsg"></div>
 </details>
 
+<div class="card" style="margin-bottom:14px"><h3>Optimizer proposals</h3>
+  <div id="proposals" style="color:var(--dim)">none</div>
+</div>
+
+<div class="card" style="margin-bottom:14px"><h3>Optimizer proposals</h3>
+  <div id="proposals" style="color:var(--dim)">none</div>
+</div>
+
 <div class="card"><h3>Recent trades</h3>
   <table id="trades"><thead><tr>
     <th>id</th><th>side</th><th>qty</th><th>entry</th><th>exit</th><th>net pnl</th><th>strategy</th><th>regime</th><th>status</th>
@@ -121,6 +129,51 @@ async function refresh() {
   } catch (e) { console.error(e); }
 }
 
+async function loadProposals() {
+  const ps = await (await fetch(q('/api/proposals'))).json();
+  const el = document.getElementById('proposals');
+  if (!ps.length) { el.textContent = 'none — run: python -m backtest.run optimize'; return; }
+  el.innerHTML = '';
+  for (const p of ps) {
+    const ev = p.evidence, c = ev.oos_candidate || {}, b = ev.oos_baseline || {};
+    el.insertAdjacentHTML('beforeend', `<div style="border-bottom:1px solid var(--line);padding:8px 0">
+      <b>#${p.id}</b> [${p.status}] ${JSON.stringify(p.params)}<br>
+      <span style="color:var(--dim)">OOS: candidate ${c.mean_net_return_pct}% (DD ${c.worst_drawdown_pct}%)
+      vs current ${b.mean_net_return_pct}% (DD ${b.worst_drawdown_pct}%) · stability ${ev.pick_stability}</span><br>
+      ${p.status==='pending' ? `<button class="b-resume" style="margin-top:6px" onclick="prop(${p.id},'apply')">Apply</button>
+      <button class="b-stop" style="margin-top:6px" onclick="prop(${p.id},'dismiss')">Dismiss</button>` : ''}
+    </div>`);
+  }
+}
+async function prop(id, action) {
+  const r = await fetch(q(`/api/proposals/${id}/${action}`), {method:'POST'});
+  alert((await r.json()).msg || action + ' ok'); loadProposals();
+}
+
+async function loadProposals() {
+  const ps = await (await fetch(q('/api/proposals'))).json();
+  const el = document.getElementById('proposals');
+  if (!ps.length) { el.textContent = 'none — run: python -m backtest.optimizer --days 60'; return; }
+  el.innerHTML = '';
+  for (const p of ps) {
+    const ev = p.evidence;
+    el.insertAdjacentHTML('beforeend',
+      `<div style="margin-bottom:10px;padding:8px;border:1px solid var(--line);border-radius:6px">
+        <b>#${p.id}</b> [${p.status}] ${JSON.stringify(p.params)}<br>
+        <span style="color:var(--dim)">OOS ${ev.mean_oos_best_pct}% vs current ${ev.mean_oos_current_pct}% ·
+        stability ${(ev.candidate_stability*100).toFixed(0)}% · ${ev.windows.length} windows</span><br>
+        <span style="color:var(--amber)">${ev.caveats}</span><br>` +
+        (p.status==='pending' ?
+        `<button class="b-resume" style="margin-top:6px" onclick="prop(${p.id},'approve')">Approve</button>
+         <button class="b-stop" style="margin-top:6px" onclick="prop(${p.id},'reject')">Reject</button>` : '') +
+      `</div>`);
+  }
+}
+async function prop(id, action) {
+  const r = await fetch(q(`/api/proposals/${id}/${action}`), {method:'POST'});
+  alert(JSON.stringify(await r.json())); loadProposals(); loadCfg();
+}
+
 async function loadCfg() {
   const cfg = await (await fetch(q('/api/config'))).json();
   document.getElementById('cfg').value = JSON.stringify(cfg, null, 2);
@@ -136,7 +189,7 @@ async function saveCfg() {
   } catch(e) { m.textContent = 'invalid JSON: ' + e; }
 }
 
-refresh(); loadCfg(); setInterval(refresh, 5000);
+refresh(); loadCfg(); loadProposals(); setInterval(refresh, 5000); setInterval(loadProposals, 30000);
 </script>
 </body>
 </html>

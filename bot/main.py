@@ -73,12 +73,55 @@ def cmd_instruments() -> None:
               f"minQty={lot.get('minOrderQty')} minNotional={lot.get('minNotionalValue', '-')}")
 
 
+def cmd_gate() -> None:
+    """Live Gate (Section H): auto-check what can be checked, list the rest."""
+    import os
+    import time as _t
+    cfg = load_config()
+    db = Database(cfg.db.path)
+    now = _t.time()
+
+    rows = db.conn.execute(
+        "SELECT ts FROM equity_snapshots WHERE ts >= ? ORDER BY ts", (now - 72 * 3600,)
+    ).fetchall()
+    cont = False
+    if rows and rows[0]["ts"] <= now - 71.5 * 3600:
+        gaps = [b["ts"] - a["ts"] for a, b in zip(rows, rows[1:])]
+        cont = bool(gaps) and max(gaps) < 300  # no gap > 5 min
+    tg = bool(os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID"))
+    halts = db.conn.execute(
+        "SELECT COUNT(*) c FROM errors WHERE context='risk' OR message LIKE '%kill%'"
+    ).fetchone()["c"]
+
+    checks = [
+        (cont, "1. >=72h continuous run (equity snapshots, no gap >5min)"),
+        (halts > 0, "2. breaker/kill events recorded (forced-failure tests done?)"),
+        (None, "3. restart-reconciliation verified with an open position [MANUAL]"),
+        (tg, "4. telegram alert delivery configured (send verified end-to-end? [MANUAL])"),
+        (None, "5. capital fully loseable; sizing/leverage/drawdown re-confirmed [MANUAL]"),
+    ]
+    ok = True
+    for state, label in checks:
+        mark = "?" if state is None else ("PASS" if state else "FAIL")
+        ok = ok and state is not False
+        print(f"[{mark:4}] {label}")
+    extra = []
+    if cfg.exchange.demo or cfg.exchange.testnet:
+        extra.append("config still demo/testnet (expected until gate passes)")
+    if cfg.risk.equity_cap is not None:
+        extra.append("equity_cap is SET — must be null for live")
+    for e in extra:
+        print(f"[NOTE] {e}")
+    print("Gate", "NOT passed — mainnet help stays refused." if not ok or extra else
+          "auto-checks pass — manual items remain your call.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="bot")
-    parser.add_argument("command", choices=["run", "kill", "resume", "status", "instruments"])
+    parser.add_argument("command", choices=["run", "kill", "resume", "status", "instruments", "gate"])
     args = parser.parse_args()
     {"run": cmd_run, "kill": cmd_kill, "resume": cmd_resume,
-     "status": cmd_status, "instruments": cmd_instruments}[args.command]()
+     "status": cmd_status, "instruments": cmd_instruments, "gate": cmd_gate}[args.command]()
 
 
 if __name__ == "__main__":

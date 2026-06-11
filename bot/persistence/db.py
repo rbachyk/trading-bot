@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS bot_state (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    params TEXT NOT NULL,       -- JSON: proposed strategy/risk params
+    evidence TEXT NOT NULL,     -- JSON: in/out-of-sample walk-forward results
+    status TEXT NOT NULL DEFAULT 'pending'   -- pending | approved | rejected
+);
 """
 
 
@@ -144,3 +151,24 @@ class Database:
             (day_start_ts,),
         ).fetchone()
         return float(row["equity"]) if row else None
+
+    # ---- optimizer proposals (Section F: supervised improvement loop) ----------
+    def add_proposal(self, params_json: str, evidence_json: str) -> int:
+        import time as _t
+        cur = self.conn.execute(
+            "INSERT INTO proposals(ts, params, evidence) VALUES(?, ?, ?)",
+            (_t.time(), params_json, evidence_json))
+        self.conn.commit()
+        return int(cur.lastrowid)
+
+    def proposals(self, status: str | None = None):
+        q = "SELECT * FROM proposals"
+        args: tuple = ()
+        if status:
+            q += " WHERE status=?"
+            args = (status,)
+        return self.conn.execute(q + " ORDER BY id DESC", args).fetchall()
+
+    def set_proposal_status(self, pid: int, status: str) -> None:
+        self.conn.execute("UPDATE proposals SET status=? WHERE id=?", (status, pid))
+        self.conn.commit()

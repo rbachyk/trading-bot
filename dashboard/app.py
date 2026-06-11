@@ -151,6 +151,104 @@ async def set_config(request: Request):
     return {"ok": True, "msg": "saved — RESTART the bot service to apply (never hot-applied)"}
 
 
+# ---------- optimizer proposals (Phase 3) ----------------------------------------------
+def _proposals_table(db: Database) -> None:
+    db.conn.execute(
+        """CREATE TABLE IF NOT EXISTS proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL,
+            params TEXT NOT NULL, evidence TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending')""")
+    db.conn.commit()
+
+
+@app.get("/api/proposals", dependencies=[Depends(_auth)])
+def proposals():
+    db = _db()
+    _proposals_table(db)
+    rows = db.conn.execute("SELECT * FROM proposals ORDER BY id DESC LIMIT 20").fetchall()
+    import json as _json
+    return [{**dict(r), "params": _json.loads(r["params"]),
+             "evidence": _json.loads(r["evidence"])} for r in rows]
+
+
+@app.post("/api/proposals/{pid}/apply", dependencies=[Depends(_auth)])
+def apply_proposal(pid: int):
+    """User approval step (Section F): merge proposed strategy/risk params into
+    config.yaml (validated), mark applied. Restart required; commit to git with
+    the evidence in the message."""
+    import json as _json
+    db = _db()
+    _proposals_table(db)
+    row = db.conn.execute("SELECT * FROM proposals WHERE id=?", (pid,)).fetchone()
+    if not row:
+        raise HTTPException(404, "no such proposal")
+    params = _json.loads(row["params"])
+    raw = yaml.safe_load(CFG_PATH.read_text())
+    for k, v in params.items():
+        section = "risk" if k in ("stop_loss_atr_mult", "max_position_pct") else "strategy"
+        raw[section][k] = v
+    try:
+        AppConfig.model_validate({**raw, "api_key": "x", "api_secret": "x"})
+    except ValidationError as e:
+        raise HTTPException(422, detail=e.errors(include_url=False, include_context=False))
+    CFG_PATH.write_text(yaml.safe_dump(raw, sort_keys=False))
+    db.conn.execute("UPDATE proposals SET status='applied' WHERE id=?", (pid,))
+    db.conn.commit()
+    return {"ok": True, "msg": "applied to config.yaml — RESTART the bot, then commit: "
+            f"git commit -am 'tune: apply proposal #{pid} (walk-forward evidence in dashboard)'"}
+
+
+@app.post("/api/proposals/{pid}/dismiss", dependencies=[Depends(_auth)])
+def dismiss_proposal(pid: int):
+    db = _db()
+    _proposals_table(db)
+    db.conn.execute("UPDATE proposals SET status='dismissed' WHERE id=?", (pid,))
+    db.conn.commit()
+    return {"ok": True}
+
+
+# ---------- optimizer proposals (Section F) ----------------------------------------------
+@app.get("/api/proposals", dependencies=[Depends(_auth)])
+def proposals():
+    import json as _json
+    return [{**dict(r), "params": _json.loads(r["params"]),
+             "evidence": _json.loads(r["evidence"])} for r in _db().proposals()]
+
+
+@app.post("/api/proposals/{pid}/approve", dependencies=[Depends(_auth)])
+def approve_proposal(pid: int):
+    """Apply proposed strategy/risk params to config.yaml (validated), mark approved.
+    Requires bot restart; commit to git with the evidence (Section F)."""
+    import json as _json
+    db = _db()
+    rows = [r for r in db.proposals() if r["id"] == pid]
+    if not rows:
+        raise HTTPException(404, "no such proposal")
+    if rows[0]["status"] != "pending":
+        raise HTTPException(409, f"proposal is {rows[0]['status']}")
+    params = _json.loads(rows[0]["params"])
+
+    raw = yaml.safe_load(CFG_PATH.read_text())
+    for k, v in params.items():
+        section = "risk" if k in ("stop_loss_atr_mult", "max_position_pct") else "strategy"
+        raw[section][k] = v
+    try:
+        AppConfig.model_validate({**raw, "api_key": "x", "api_secret": "x"})
+    except ValidationError as e:
+        raise HTTPException(422, detail=e.errors(include_url=False, include_context=False))
+    CFG_PATH.write_text(yaml.safe_dump(raw, sort_keys=False))
+    db.set_proposal_status(pid, "approved")
+    return {"ok": True, "msg": (
+        "applied to config.yaml — RESTART the bot, then commit: "
+        f"git commit -am 'tune: apply proposal #{pid} (see proposals table for evidence)'")}
+
+
+@app.post("/api/proposals/{pid}/reject", dependencies=[Depends(_auth)])
+def reject_proposal(pid: int):
+    _db().set_proposal_status(pid, "rejected")
+    return {"ok": True}
+
+
 # ---------- UI ------------------------------------------------------------------------
 @app.get("/", response_class=HTMLResponse)
 def index():
