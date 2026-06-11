@@ -14,6 +14,7 @@ import time
 from typing import Callable
 
 import pandas as pd
+from pybit import exceptions as bybit_exc
 from pybit.unified_trading import HTTP
 
 log = logging.getLogger("exchange")
@@ -35,22 +36,29 @@ class BybitClient:
 
     # ---- plumbing -----------------------------------------------------------
     def _call(self, fn, ctx: str, retries: int = 4, **kwargs) -> dict:
+        """pybit raises on every non-zero retCode (InvalidRequestError) and on
+        transport problems (FailedRequestError) — it does NOT return error responses.
+        We normalize everything to RuntimeError so callers handle one type:
+          - rate limits (10006/10018 or 'rate limit' text) and transport errors -> retried with backoff
+          - other API errors -> RuntimeError immediately (message keeps the ErrCode)
+        """
         delay = 1.0
         last_exc: Exception | None = None
         for attempt in range(retries):
             try:
-                resp = fn(**kwargs)
-                if resp.get("retCode") != 0:
-                    msg = f"{ctx}: retCode={resp.get('retCode')} {resp.get('retMsg')}"
-                    # 10006 = rate limit on v5 [UNVERIFIED exact code — treat any non-zero conservatively]
-                    if "rate" in str(resp.get("retMsg", "")).lower() and attempt < retries - 1:
-                        time.sleep(delay)
-                        delay *= 2
-                        continue
-                    self._on_error(ctx, msg)
-                    raise RuntimeError(msg)
-                return resp
-            except RETRYABLE as e:
+                return fn(**kwargs)
+            except bybit_exc.InvalidRequestError as e:
+                msg = str(e)
+                if attempt < retries - 1 and (
+                        "10006" in msg or "10018" in msg or "rate limit" in msg.lower()):
+                    log.warning("%s rate limited, retry in %.1fs", ctx, delay)
+                    time.sleep(delay)
+                    delay *= 2
+                    last_exc = e
+                    continue
+                self._on_error(ctx, f"{ctx}: {msg}")
+                raise RuntimeError(f"{ctx}: {msg}") from e
+            except (bybit_exc.FailedRequestError, *RETRYABLE) as e:
                 last_exc = e
                 log.warning("%s transient error (%s), retry in %.1fs", ctx, e, delay)
                 time.sleep(delay)
