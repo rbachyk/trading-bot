@@ -65,24 +65,21 @@ class Engine:
         if self.db.get_state("env_sig") != sig:
             self.db.set_state("env_sig", sig)
             self.db.set_state("epoch_start", str(time.time()))
-            self.db.set_state("cap_baseline", "")
             log.warning("New equity epoch (environment/cap changed): %s — "
-                        "breaker baselines and cap baseline reset.", sig)
+                        "breaker baselines reset (sim ledger unaffected).", sig)
         return float(self.db.get_state("epoch_start", "0") or 0)
 
     def _strategy_by_name(self, name: str):
         return self.meanrev if name == "meanrev" else self.momentum
 
-    def _effective_equity(self, real_equity: float) -> float:
+    def _effective_equity(self, detail: dict) -> float:
+        """cap set -> virtual equity anchored to the bot's OWN trade ledger:
+        cap + realized pnl of recorded trades + unrealized of the open position.
+        Wallet drift, top-ups, restarts, and epochs cannot move it."""
         cap = self.cfg.risk.equity_cap
         if cap is None:
-            return real_equity
-        baseline_s = self.db.get_state("cap_baseline", "")
-        if not baseline_s:  # new epoch -> rebase on first observed real equity
-            self.db.set_state("cap_baseline", str(real_equity))
-            log.info("equity_cap rebased: cap=%.2f baseline=%.2f", cap, real_equity)
-            baseline_s = str(real_equity)
-        return risk.virtual_equity(real_equity, float(baseline_s), cap)
+            return detail["equity"]
+        return risk.sim_equity(cap, self.db.realized_pnl_total(), detail["unrealised"])
 
     # ---- startup -----------------------------------------------------------
     def reconcile(self) -> None:
@@ -194,7 +191,7 @@ class Engine:
         self.notify.exited(open_trade["side"], exit_price, net, "closed on exchange (stop/kill/manual)")
 
     def cycle(self) -> None:
-        equity = self._effective_equity(self.client.get_equity())
+        equity = self._effective_equity(self.client.get_equity_detail())
         self.db.log_equity(equity)
 
         # bookkeeping FIRST, even when halted — a kill-switch flatten must be

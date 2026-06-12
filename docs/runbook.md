@@ -39,11 +39,13 @@ journalctl -u tradingbot -f                # live logs
 - Note: mainnet quote is USDT, testnet quote is USDC. Fees/tick/lot may differ slightly between ETHPERP and ETHUSDT; re-check minOrderQty before the live switch.
 
 ## Small-account simulation (equity_cap)
-`risk.equity_cap: 100` makes sizing AND breakers act as if the account holds a virtual
-balance = cap + PnL since the cap was set, regardless of the real testnet balance.
-This mirrors the planned funding ladder. To "add funds" in simulation, raise the cap
-(e.g. 100 -> 1000): the baseline rebases automatically and is logged.
-Set `equity_cap: null` before mainnet — live trading sizes on real equity.
+`risk.equity_cap: 100` -> virtual equity = cap + SUM(closed trade pnl in the DB)
++ unrealized pnl of the open position. Anchored to the bot's own trade ledger:
+wallet drift, demo top-ups, restarts, deploys, and resumes cannot move it.
+- "Add funds" on the ladder: raise the cap (100 -> 1000); earned pnl carries over.
+- Reset the simulation: archive data/bot.db (the ledger IS the sim).
+- Unmodeled: funding fees on held positions (small at these holding times).
+Set `equity_cap: null` before mainnet — live trading sizes on real coin equity.
 
 ## Funding ladder reality check
 Minimum order size is exchange-enforced (e.g. 0.01 ETH on ETHUSDT). At ~$2-3k ETH that

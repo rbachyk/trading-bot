@@ -78,11 +78,19 @@ def estimate_net_pnl(side: str, qty: float, entry: float, exit_price: float,
 
 
 def virtual_equity(real_equity: float, baseline: float, cap: float) -> float:
-    """Small-account simulation: pretend the account started at `cap` when the real
-    (e.g. testnet) wallet held `baseline`. Virtual equity = cap + PnL since then.
-    Used for BOTH sizing and breakers so a 100k-USDC testnet wallet behaves like
-    the $100 account you actually plan to fund. Floored at 0."""
+    """DEPRECATED anchor (wallet-snapshot based) — kept only for old tests.
+    Wallet drift (demo coin basket, top-ups) corrupted it twice; use sim_equity."""
     return max(0.0, cap + (real_equity - baseline))
+
+
+def sim_equity(cap: float, realized_pnl: float, unrealised_pnl: float) -> float:
+    """Small-account simulation, anchored to the BOT'S OWN TRADE LEDGER:
+        virtual = cap + sum(closed trade pnl) + unrealized pnl of the open position
+    Immune to wallet noise (demo basket drift, top-ups), restarts, and epochs.
+    Raising cap = adding funds on the ladder; archiving the DB = resetting the sim.
+    Floored at 0. Unmodeled: funding fees on held positions (negligible at this
+    holding duration, but worth knowing)."""
+    return max(0.0, cap + realized_pnl + unrealised_pnl)
 
 
 def round_trip_cost_pct(taker_fee_pct: float, slippage_pct: float) -> float:

@@ -156,6 +156,11 @@ class Database:
             "SELECT MAX(equity) AS m FROM equity_snapshots WHERE ts >= ?", (since,)).fetchone()
         return float(row["m"]) if row and row["m"] is not None else 0.0
 
+    def realized_pnl_total(self) -> float:
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(pnl), 0) AS s FROM trades WHERE status='closed'").fetchone()
+        return float(row["s"])
+
     def day_start_equity(self, day_start_ts: float) -> float | None:
         row = self.conn.execute(
             "SELECT equity FROM equity_snapshots WHERE ts >= ? ORDER BY ts ASC LIMIT 1",

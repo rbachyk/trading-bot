@@ -22,19 +22,21 @@ log = logging.getLogger("exchange")
 RETRYABLE = (ConnectionError, TimeoutError, OSError)
 
 
-def parse_coin_equity(resp: dict, settle_coin: str) -> float:
-    """Pure parser for v5 wallet-balance, coin-scoped. Prefers the coin's 'equity'
-    field; falls back to walletBalance + unrealisedPnl; raises if the coin is absent
-    (better loud than silently sizing on the wrong number)."""
+def parse_coin_detail(resp: dict, settle_coin: str) -> dict:
+    """Pure parser for v5 wallet-balance, coin-scoped: {'equity','wallet','unrealised'}.
+    Raises if the coin is absent — better loud than sizing on the wrong number."""
     coins = resp["result"]["list"][0].get("coin", [])
     for c in coins:
         if c.get("coin") == settle_coin:
-            if c.get("equity") not in (None, ""):
-                return float(c["equity"])
             wb = float(c.get("walletBalance") or 0)
             upl = float(c.get("unrealisedPnl") or 0)
-            return wb + upl
+            eq = float(c["equity"]) if c.get("equity") not in (None, "") else wb + upl
+            return {"equity": eq, "wallet": wb, "unrealised": upl}
     raise RuntimeError(f"settle coin {settle_coin} not found in wallet response")
+
+
+def parse_coin_equity(resp: dict, settle_coin: str) -> float:
+    return parse_coin_detail(resp, settle_coin)["equity"]
 
 
 class BybitClient:
@@ -135,9 +137,12 @@ class BybitClient:
         """Settlement-coin equity ONLY (walletBalance + unrealisedPnl of e.g. USDT).
         NOT totalEquity: that values the whole wallet (demo coin basket included),
         so it drifts with market prices and corrupts sizing and breakers."""
+        return self.get_equity_detail()["equity"]
+
+    def get_equity_detail(self) -> dict:
         resp = self._call(self.http.get_wallet_balance, "wallet_balance",
                           accountType="UNIFIED", coin=self.settle_coin)
-        return parse_coin_equity(resp, self.settle_coin)
+        return parse_coin_detail(resp, self.settle_coin)
 
     def get_position(self) -> dict | None:
         """Returns {'side': 'Buy'|'Sell', 'qty': float, 'entry': float, 'stop': float|None} or None."""
