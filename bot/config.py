@@ -18,6 +18,9 @@ class ExchangeCfg(BaseModel):
                               # Requires testnet: false. Demo funds, real instruments.
     tld: str = "com"          # "eu" for testnet.bybit.eu accounts; "com" for bybit.com
     symbol: str = "ETHUSDT"
+    settle_coin: str = "USDT"  # equity is scoped to THIS coin only (USDC for EU testnet
+                               # ETHPERP). totalEquity of the whole wallet includes the
+                               # demo coin basket and drifts with market prices.
     category: str = "linear"
     leverage: float = Field(1, ge=1)
 

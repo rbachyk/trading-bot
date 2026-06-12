@@ -50,7 +50,8 @@ def _db() -> Database:
 def _client(cfg: AppConfig) -> BybitClient:
     return BybitClient(cfg.api_key, cfg.api_secret, cfg.exchange.testnet,
                        cfg.exchange.symbol, cfg.exchange.category,
-                       tld=cfg.exchange.tld, demo=cfg.exchange.demo)
+                       tld=cfg.exchange.tld, demo=cfg.exchange.demo,
+                       settle_coin=cfg.exchange.settle_coin)
 
 
 # ---------- read APIs -------------------------------------------------------------
@@ -127,8 +128,10 @@ def control_kill():
 
 @app.post("/api/control/resume", dependencies=[Depends(_auth)])
 def control_resume():
-    _db().clear_halt()
-    return {"ok": True, "msg": "halt cleared — engine resumes next cycle"}
+    db = _db()
+    db.clear_halt()
+    db.reanchor_breakers()
+    return {"ok": True, "msg": "halt cleared, breaker baselines re-anchored — engine resumes next cycle"}
 
 
 # ---------- config editor -------------------------------------------------------------

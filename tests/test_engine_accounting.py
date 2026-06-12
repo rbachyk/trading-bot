@@ -47,3 +47,24 @@ def test_peak_equity_scoped_to_epoch(tmp_path):
     p = risk.RiskParams(1.5, 4.0, 12.0, 2.0, 1.0)
     assert risk.drawdown_breached(db.peak_equity(), 100.0, p) is True
     assert risk.drawdown_breached(db.peak_equity(since=epoch), 100.0, p) is False
+
+
+def test_resume_reanchors_breakers(tmp_path):
+    """A drawdown halt must not re-trip immediately after a deliberate resume."""
+    db = Database(str(tmp_path / "r.db"))
+    t0 = time.time()
+    db.set_state("epoch_start", str(t0 - 1000))
+    db.conn.execute("INSERT INTO equity_snapshots(ts, equity) VALUES(?, ?)", (t0 - 900, 120.0))
+    db.conn.execute("INSERT INTO equity_snapshots(ts, equity) VALUES(?, ?)", (t0 - 10, 100.0))
+    db.conn.commit()
+    db.halt("MAX DRAWDOWN")
+    p = risk.RiskParams(1.5, 4.0, 12.0, 2.0, 1.0)
+
+    epoch = float(db.get_state("epoch_start"))
+    assert risk.drawdown_breached(db.peak_equity(since=epoch), 100.0, p) is True  # would re-trip
+
+    db.clear_halt()
+    db.reanchor_breakers()
+    epoch = float(db.get_state("epoch_start"))
+    assert risk.drawdown_breached(max(db.peak_equity(since=epoch), 100.0), 100.0, p) is False
+    assert db.is_halted() is False

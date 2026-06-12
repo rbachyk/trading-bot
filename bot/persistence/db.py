@@ -92,6 +92,14 @@ class Database:
         self.set_state("halted", "0")
         self.set_state("halt_reason", "")
 
+    def reanchor_breakers(self) -> None:
+        """Called on RESUME (a deliberate human ack after reviewing a halt):
+        breaker baselines (peak / day-start) re-anchor at the present, otherwise
+        a drawdown halt re-trips on the very next cycle and resume is useless.
+        The cap baseline is NOT touched — simulated PnL history stays truthful."""
+        import time as _t
+        self.set_state("epoch_start", str(_t.time()))
+
     # ---- logging -----------------------------------------------------------
     def log_equity(self, equity: float) -> None:
         self.conn.execute(

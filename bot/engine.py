@@ -36,6 +36,7 @@ class Engine:
             cfg.api_key, cfg.api_secret, cfg.exchange.testnet,
             cfg.exchange.symbol, cfg.exchange.category,
             tld=cfg.exchange.tld, demo=cfg.exchange.demo,
+            settle_coin=cfg.exchange.settle_coin,
             on_error=self.db.log_error,
         )
         s = cfg.strategy
@@ -53,7 +54,8 @@ class Engine:
     # ---- helpers -----------------------------------------------------------
     def _env_signature(self) -> str:
         e = self.cfg.exchange
-        return f"{e.testnet}|{e.demo}|{e.tld}|{e.symbol}|cap={self.cfg.risk.equity_cap}"
+        return (f"{e.testnet}|{e.demo}|{e.tld}|{e.symbol}|{e.settle_coin}"
+                f"|cap={self.cfg.risk.equity_cap}|eqv=coin")
 
     def _ensure_epoch(self) -> float:
         """Equity scales are only comparable within one environment+cap combo.

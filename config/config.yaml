@@ -1,8 +1,8 @@
 exchange:
-  testnet: false
-  demo: true
-  tld: com
-  symbol: ETHUSDT
+  testnet: true
+  tld: eu
+  symbol: ETHPERP
+  settle_coin: USDT
   category: linear
   leverage: 1
 timeframes:

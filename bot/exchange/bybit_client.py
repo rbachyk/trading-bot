@@ -22,12 +22,29 @@ log = logging.getLogger("exchange")
 RETRYABLE = (ConnectionError, TimeoutError, OSError)
 
 
+def parse_coin_equity(resp: dict, settle_coin: str) -> float:
+    """Pure parser for v5 wallet-balance, coin-scoped. Prefers the coin's 'equity'
+    field; falls back to walletBalance + unrealisedPnl; raises if the coin is absent
+    (better loud than silently sizing on the wrong number)."""
+    coins = resp["result"]["list"][0].get("coin", [])
+    for c in coins:
+        if c.get("coin") == settle_coin:
+            if c.get("equity") not in (None, ""):
+                return float(c["equity"])
+            wb = float(c.get("walletBalance") or 0)
+            upl = float(c.get("unrealisedPnl") or 0)
+            return wb + upl
+    raise RuntimeError(f"settle coin {settle_coin} not found in wallet response")
+
+
 class BybitClient:
     def __init__(self, api_key: str, api_secret: str, testnet: bool,
                  symbol: str, category: str, tld: str = "com", demo: bool = False,
+                 settle_coin: str = "USDT",
                  on_error: Callable[[str, str], None] | None = None):
         self.symbol = symbol
         self.category = category
+        self.settle_coin = settle_coin
         self._on_error = on_error or (lambda ctx, msg: None)
         # tld="eu" -> api(-testnet).bybit.eu | demo=True -> api-demo.bybit.com
         self.http = HTTP(testnet=testnet, demo=demo,
@@ -115,8 +132,12 @@ class BybitClient:
 
     # ---- account / positions ---------------------------------------------------
     def get_equity(self) -> float:
-        resp = self._call(self.http.get_wallet_balance, "wallet_balance", accountType="UNIFIED")
-        return float(resp["result"]["list"][0]["totalEquity"])
+        """Settlement-coin equity ONLY (walletBalance + unrealisedPnl of e.g. USDT).
+        NOT totalEquity: that values the whole wallet (demo coin basket included),
+        so it drifts with market prices and corrupts sizing and breakers."""
+        resp = self._call(self.http.get_wallet_balance, "wallet_balance",
+                          accountType="UNIFIED", coin=self.settle_coin)
+        return parse_coin_equity(resp, self.settle_coin)
 
     def get_position(self) -> dict | None:
         """Returns {'side': 'Buy'|'Sell', 'qty': float, 'entry': float, 'stop': float|None} or None."""

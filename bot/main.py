@@ -43,8 +43,11 @@ def cmd_kill() -> None:
 
 def cmd_resume() -> None:
     cfg = load_config()
-    Database(cfg.db.path).clear_halt()
-    log.info("Halt cleared. Restart the engine (or it resumes next cycle).")
+    db = Database(cfg.db.path)
+    db.clear_halt()
+    db.reanchor_breakers()
+    log.info("Halt cleared; breaker baselines re-anchored at current equity. "
+             "Engine resumes next cycle.")
 
 
 def cmd_status() -> None:
